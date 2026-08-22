@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Noosphere-Net</title>
+<style>
+  :root { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  body { margin:0; background:#0b0d10; color:#e9f2ff; }
+  header { padding:18px 22px; border-bottom:1px solid #2d3642; position:sticky; top:0; background:#0b0d10; }
+  h1 { margin:0; font-size:22px; }
+  .sub { opacity:.7; margin-top:4px; font-size:12px; }
+  main { display:grid; grid-template-columns: 1.1fr .9fr; gap:14px; padding:14px; }
+  .panel { border:1px solid #2d3642; border-radius:14px; padding:14px; background:#11151a; }
+  .nodes { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:10px; }
+  .node { padding:12px; border:1px solid #33404d; border-radius:10px; background:#151b22; cursor:pointer; }
+  .node:hover { transform:translateY(-1px); }
+  .name { font-weight:700; }
+  .ip { opacity:.6; font-size:12px; margin-top:4px; }
+  input, button { font:inherit; }
+  input { width:100%; box-sizing:border-box; padding:10px 12px; border-radius:9px; border:1px solid #394654; background:#0d1116; color:#fff; }
+  button { margin-top:8px; padding:9px 12px; border-radius:9px; border:1px solid #394654; background:#18212a; color:white; cursor:pointer; }
+  pre { white-space:pre-wrap; word-break:break-word; min-height:220px; margin:0; }
+  .route { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .hop { padding:5px 8px; border-radius:999px; background:#1a2430; border:1px solid #354354; font-size:12px; }
+  .ok { opacity:.75; font-size:12px; }
+  @media(max-width:800px){ main{grid-template-columns:1fr}.nodes{grid-template-columns:1fr 1fr} }
+</style>
+</head>
+<body>
+<header>
+  <h1>NOOSPHERE-NET</h1>
+  <div class="sub">Internet miniature autonome · DNS · routage · HTTP virtuel · messagerie inter-agent</div>
+</header>
+<main>
+  <section class="panel">
+    <h3>Topologie</h3>
+    <div class="nodes" id="nodes"></div>
+    <h3>DNS / navigateur</h3>
+    <input id="url" value="mesh://archive.mesh/" />
+    <button onclick="browse()">GET</button>
+    <div class="route" id="route"></div>
+  </section>
+  <section class="panel">
+    <h3>Terminal réseau</h3>
+    <pre id="terminal"></pre>
+  </section>
+  <section class="panel">
+    <h3>Post Office</h3>
+    <input id="from" value="agent_A" placeholder="sender">
+    <input id="to" value="agent_B" placeholder="recipient" style="margin-top:7px">
+    <input id="msg" value="SYN: hello from Noosphere-Net" placeholder="message" style="margin-top:7px">
+    <button onclick="sendMsg()">SEND</button>
+    <button onclick="readMsg()">READ agent_B</button>
+  </section>
+  <section class="panel">
+    <h3>État</h3>
+    <div class="ok">Le réseau ci-dessous est simulé entièrement côté navigateur. Aucun serveur externe n'est nécessaire.</div>
+    <pre id="state"></pre>
+  </section>
+</main>
+<script>
+const dns={"observer.home":"10.0.0.2","router-a.net":"10.0.0.1","router-b.net":"10.0.1.1","archive.mesh":"10.0.1.10","oracle.mesh":"10.0.1.11","post.mesh":"10.0.1.20"};
+const links={"10.0.0.2":["10.0.0.1"],"10.0.0.1":["10.0.0.2","10.0.1.1"],"10.0.1.1":["10.0.0.1","10.0.1.10","10.0.1.11","10.0.1.20"],"10.0.1.10":["10.0.1.1"],"10.0.1.11":["10.0.1.1"],"10.0.1.20":["10.0.1.1"]};
+const pages={"archive.mesh":{"/":"<h1>Noosphere Archive</h1><p>The local web is alive.</p>","/history":"<h1>History</h1><p>This page never touched the public Internet.</p>"},"oracle.mesh":{"/":"<h1>Oracle</h1><p>Ask better questions.</p>"}};
+const inboxes={}; let packetId=0; const observer=dns["observer.home"];
+function shortestPath(start,goal){const q=[[start]],seen=new Set([start]);while(q.length){const p=q.shift(),here=p[p.length-1];if(here===goal)return p;for(const n of(links[here]||[])){if(!seen.has(n)){seen.add(n);q.push([...p,n]);}}}return[];}
+function term(obj){document.getElementById("terminal").textContent=typeof obj==="string"?obj:JSON.stringify(obj,null,2);}
+function showRoute(route){const r=document.getElementById("route");r.innerHTML="";route.forEach(x=>{const s=document.createElement("span");s.className="hop";s.textContent=x;r.appendChild(s)});}
+function browse(){const raw=document.getElementById("url").value.trim();const m=raw.match(/^mesh:\/\/([^\/]+)(\/.*)?$/);if(!m)return term({ok:false,error:"Use mesh://hostname/path"});const host=m[1],path=m[2]||"/",dst=dns[host];if(!dst)return term({ok:false,status:404,error:"DNS NXDOMAIN"});const route=shortestPath(observer,dst);showRoute(route);packetId++;const body=pages[host]?.[path];term(body===undefined?{ok:false,status:404,packet_id:packetId,route,body:"Not Found"}:{ok:true,status:200,packet_id:packetId,route,headers:{server:host,"x-noosphere":"1"},body});updateState();}
+function sendMsg(){const from=document.getElementById("from").value;const to=document.getElementById("to").value;const text=document.getElementById("msg").value;const dst=dns["post.mesh"],route=shortestPath(observer,dst);packetId++;inboxes[to]??=[];inboxes[to].push({from,text,packet_id:packetId});showRoute(route);term({ok:true,status:202,queued_for:to,packet_id:packetId,route});updateState();}
+function readMsg(){const user=document.getElementById("to").value;const dst=dns["post.mesh"],route=shortestPath(observer,dst);packetId++;const messages=inboxes[user]||[];inboxes[user]=[];showRoute(route);term({ok:true,status:200,user,messages,packet_id:packetId,route});updateState();}
+function updateState(){document.getElementById("state").textContent=JSON.stringify({dns,packetId,inboxes},null,2);}
+function drawNodes(){const box=document.getElementById("nodes");Object.entries(dns).forEach(([name,ip])=>{const d=document.createElement("div");d.className="node";d.innerHTML=`<div class="name">${name}</div><div class="ip">${ip}</div>`;d.onclick=()=>{if(name.endsWith(".mesh")&&name!=="post.mesh"){document.getElementById("url").value=`mesh://${name}/`;browse();}};box.appendChild(d);});}
+drawNodes();updateState();browse();
+</script>
+</body>
+</html>
